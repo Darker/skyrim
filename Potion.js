@@ -69,6 +69,19 @@ Potion.prototype.asTableRow = function() {
     tr.appendChild(extensions);
     return tr;
 }
+// Plaintext row will actually be represented by arrays
+// first array the row itself, eg. ["col1", "col2" ...]
+// and nested arrays for multi line columns
+// eg.: ["col1", "col2", ["col3 line1", "col3 line2"] ...]
+Potion.prototype.asPlaintextRow = function() {
+    // Put extension into nuice brackets
+    var extensions = "";
+    if(this.extensions.length>0) {
+        extensions = "["+this.extensions.join("] [")+"]";
+    }
+    return [this.effect_names, this.ingredients, this.value+"", extensions];
+}
+
 Potion.prototype.toJSON = function() {
     return {
         ingredients: this.ingredients,

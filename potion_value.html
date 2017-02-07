@@ -20,7 +20,7 @@
   </style>
   </head>
   <body>
-   <table id="potions" cellpading="0" cellspacing="0"></table>
+
   </body>
   <script type="text/javascript" src="skyrim-potion-effects.js"></script>
   <script type="text/javascript" src="array_equals.js"></script>
@@ -40,12 +40,17 @@
 
     var possible_potions = [];
     function push_potion_unique(potions, potion) {
-        if(potion.hasExtension())
-            return false;
-        if(!potion.hasEffect("Regenerate Health"))                                // || !potion.hasEffect("Restore Health")
-            return false;
-        //if(potion.value<20)
+        /** Potion filtering **/
+        // Exclude potion with or without DLC requirements
+        //if(!potion.hasExtension())
         //    return false;
+        // Require particular effects, case sensitive
+        //if(!potion.hasEffect("Regenerate Health"))                                // || !potion.hasEffect("Restore Health")
+        //    return false;
+        // Require particular value
+        //if(potion.value<300)
+        //    return false;
+        /** Potion filtering END **/
         if(potions.find(potion.equals.bind(potion))==null)
             potions.push(potion);
         //else
@@ -54,7 +59,7 @@
     // max potions: 10282
 
     ingredients_loop_async(0, function(i1_name, i1, i1_index, break_) {
-        if(possible_potions.length>25000) {
+        if(possible_potions.length>100000) {
             console.error("Safety switch triggered!");
             return break_();
         }
@@ -92,30 +97,183 @@
                 });
             });
         });
-    }, 1, function(n, n2, n3, percent) {document.title = (Math.round(percent*200)/2)+" % done"; if(n==n3)generator_done();});
+    }, 0, function(n, n2, n3, percent) {document.title = (Math.round(percent*100)/1)+" % done"; if(n==n3)generator_done();});
     
     function generator_done() {
         console.log("Total potion options: ", possible_potions.length);
+        /** POTION SORTING **/
         // Sort by base value
-        //possible_potions.sort(function(a, b) {
-        //    return -a.value+b.value;
-        //});
-        // Sort by nomber of effects
         possible_potions.sort(function(a, b) {
-            return -a.effectCount()+b.effectCount();
+            return -a.value+b.value;
         });
+        // Sort by nomber of effects
+        //possible_potions.sort(function(a, b) {
+        //    return -a.effectCount()+b.effectCount();
+        //});
         
+        /** OUTPUT TYPE **/
+        // Markdown/ASCII table
+        setTimeout(generatePotionsMarkdownTable, 0, possible_potions);
+        // HTML table (slower)
+        //setTimeout(generatePotionsHTMLTable, 0, possible_potions);
+    }
+    function generatePotionsHTMLTable(potions) {
         var ptable = document.createElement("table");
         ptable.innerHTML = "<tr><th>Effects</th><th>Ingredients</th><th>Value</th>";
         ptable.cellpadding = "0";
         ptable.cellspacing = "0";
         ptable.id = "potions_table";
-                
-        possible_potions.forEach(function(potion) {
-            ptable.appendChild(potion.asTableRow());
-        });
+        var iterator = potions[Symbol.iterator](); 
+        var length = potions.length;
+        var current = 0; 
+        //var HTMLelms = [];
+        
+        function next() {
+            var next_value = iterator.next();
+            if(next_value.done) {
+                document.title = "All done, appending HTML.";
+                //HTMLelms.forEach((elm)=>{ptable.appendChild(elm);});
+                document.body.appendChild(ptable);
+                return;
+            }        
+            ptable.appendChild(next_value.value.asTableRow());
+            //HTMLelms.push(next_value.value.asTableRow());
+            document.title = Math.round((current/length)*100)+" % HTML done.";
+            ++current;
+            if(current%100==0)
+                setTimeout(next, 0);
+            else
+                next();
+        }      
+        setTimeout(next, 0);
     }
+    function generatePotionsMarkdownTable(potions) {
+        // character width for each column
+        var column_widths = [0,0,0,0];
+        // cached strings of correct length
+        // will be filled after procesing
+        var column_widths_strings;
+        // line height for each line
+        var line_heights = [];
+        // finally, the table as string
+        var table = "";
+        // separator between rows, pregenerated
+        var line_separator = "";
+        var header_line_separator = "";
+        const column_separator = " │ ";
+        var element = document.createElement("pre");
+        
+        var data = [];
+        var iterator = potions[Symbol.iterator](); 
+        var length = potions.length;
+        var current = 0; 
+        // table headings 
+        var headings = ["Effects", "Ingredients", "Value", "Extensions"];
+        process_row(headings);
+        
+        setTimeout(process_data, 0);
+        function process_data() {
+            var next_value = iterator.next();
+            if(next_value.done) {
+                // reset counter back to 0
+                current = 0;
+                iterator = data[Symbol.iterator]();
+                // populate column widths with actual strings of correct length
+                column_widths_strings = column_widths.map((count)=>{var str="";while(count-->0)str+=" ";return str;});
+                // generate line separator
+                for(var i=0,l=column_widths.length; i<l; ++i) {
+                    if(i>0) {
+                        line_separator+="─┼─";
+                        header_line_separator+="═╪═";
+                    }
+                    line_separator+=       str_repeat("─", column_widths[i]);
+                    header_line_separator+=str_repeat("═", column_widths[i]);
+                }
+                console.log("Widths: ",column_widths);
+                console.log("Line sep.: ",line_separator); 
+                
+                 
+                setTimeout(generate_table, 0, true);
+                return;
+            }        
+            var cur = next_value.value.asPlaintextRow();
+            process_row(cur);
+            
+            document.title = Math.round((current/length)*50)+" % ASCII done.";
+            ++current;
+            if(current%100==0)
+                setTimeout(process_data, 0);
+            else 
+                process_data();
+        }   
+        function process_row(row_data) {
+            var max_height = 1;
+            for(var ri=0, rl=row_data.length; ri<rl; ++ri) {
+                 var column = row_data[ri];
+                 if(column instanceof Array) {
+                     for(var ci=0, cl=column.length; ci<cl; ++ci) {
+                         column_widths[ri] = Math.max(column_widths[ri], column[ci].length);
+                     }
+                     max_height = Math.max(max_height, column.length);
+                 }
+                 else {
+                     column_widths[ri] = Math.max(column_widths[ri], column.length);
+                 }            
+            }
+            line_heights.push(max_height);
+            data.push(row_data);
+        }   
+        
+        function generate_table(first_iteration) {
+            var next_value = iterator.next();
+            if(next_value.done) {
+                element.appendChild(new Text(table));
+                document.body.appendChild(element);
+                document.title = " All done.";
+                return;
+            }        
+            var current_row = next_value.value;
+            if(first_iteration)console.log(line_heights);
 
+            for(var i=0, l=line_heights[current]; i<l; ++i) {
+                for(var ci=0, cl=current_row.length; ci<cl; ++ci) {
+                    // add separator for every but first column
+                    if(ci>0) {
+                        table += column_separator;                    
+                    }       
+                    var column = current_row[ci];
+                    // if column is multi-line, add value for current line
+                    if( (column instanceof Array && column.length>i)) {
+                         table+= column[i]+str_repeat(" ", column_widths[ci]-column[i].length);
+                    }
+                    else if(typeof column=="string" && i==(Math.floor((l-1)/2))) {
+                         table+= column+str_repeat(" ", column_widths[ci]-column.length);
+                    }
+                    // if no value for curent line, just fill with blank space
+                    else {
+                         table+= column_widths_strings[ci];
+                    }
+                }
+                table+="\n";
+            }
+            // add line separator
+            table += (first_iteration?header_line_separator:line_separator)+"\n";
+             
+            document.title = Math.round((current/length)*50+50)+" % ASCII done.";
+            ++current;
+            if(current%100==0)
+                setTimeout(generate_table, 0);
+            else 
+                generate_table();
+            
+        }      
+    }
+    function str_repeat(str, count) {
+        var res="";
+        while(count-->0)
+            res+=str;
+        return res;
+    }
     function object_foreach(object, callback, skip_keys) {
         for(var KEY in object) {
             if(!object.hasOwnProperty(KEY))
