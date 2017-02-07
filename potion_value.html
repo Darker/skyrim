@@ -1,0 +1,204 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<html>
+  <head>
+  <meta http-equiv="content-type" content="text/html; charset=utf-8">
+  <meta name="generator" content="PSPad editor, www.pspad.com">
+  <title>Skyrim potion value table</title>
+  <style>
+     table td {
+         border-top: 1px solid black;
+     }
+     p {
+         margin:0px;padding:0px;
+     }
+     span.extensions {
+         display: inline-block;
+         background-color: #AAA;
+         border-radius: 2em;
+         font-family: Arial;
+     }
+  </style>
+  </head>
+  <body>
+   <table id="potions" cellpading="0" cellspacing="0"></table>
+  </body>
+  <script type="text/javascript" src="skyrim-potion-effects.js"></script>
+  <script type="text/javascript" src="array_equals.js"></script>
+  <script type="text/javascript" src="Potion.js"></script>
+  <script>
+    // first populate useful info
+    var effect_values = {};
+    var ingredient_names = [];
+    object_foreach(POTION_INGREDIENTS, function(name, info) {
+        info.effect_list = [];
+        object_foreach(info.effects, function(efname, efvalue) {
+             effect_values[efname] = efvalue.cost;
+             info.effect_list.push(efname);
+        });
+        ingredient_names.push(name);
+    });
+
+    var possible_potions = [];
+    function push_potion_unique(potions, potion) {
+        if(potion.hasExtension())
+            return false;
+        if(!potion.hasEffect("Regenerate Health"))                                // || !potion.hasEffect("Restore Health")
+            return false;
+        //if(potion.value<20)
+        //    return false;
+        if(potions.find(potion.equals.bind(potion))==null)
+            potions.push(potion);
+        //else
+        //    console.warn("Potion already exists: ", potion);
+    }
+    // max potions: 10282
+
+    ingredients_loop_async(0, function(i1_name, i1, i1_index, break_) {
+        if(possible_potions.length>25000) {
+            console.error("Safety switch triggered!");
+            return break_();
+        }
+        ingredients_loop(i1_index+1, function(i2_name, i2, i2_index) {
+            if(i2_name == i1_name) {
+                throw new Error("Level 2 index error");
+                return;
+            }
+                
+            var effects = ingredient_shared_effects(i1, i2);
+            if(effects.length==0)
+                return;
+            // this settles the 2 ingredient potion, which we now add
+            push_potion_unique(possible_potions, new Potion([i1, i2], effects));
+            
+            // now find all 3rd ingredients. That's analogous, just more loops
+            var two_ingredients = [i1, i2];
+            // Both two individual ingredients are checked for match
+            two_ingredients.forEach(function(ingredient) {
+                ingredients_loop(i2_index+1, function(i3_name, i3, i3_index) {
+                    if(i3_name==i2_name ||i3_name==i1_name){
+                        throw new Error("Level 3 index error");
+                        return;
+                    }
+                    // check if has common ingredient
+                    var effects2 = ingredient_shared_effects(i3, ingredient);
+                    if(effects2.length==0)
+                        return;
+                    // If no new effects are added, this ingredient is useless for 3 part potion
+                    if(effects.equals(effects2))
+                        return;
+                    // now calculate effects for all three together
+                    var effects_all = ingredient_shared_effects(i1, i2, i3);
+                    push_potion_unique(possible_potions, new Potion([i1, i2, i3], effects_all));
+                });
+            });
+        });
+    }, 1, function(n, n2, n3, percent) {document.title = (Math.round(percent*200)/2)+" % done"; if(n==n3)generator_done();});
+    
+    function generator_done() {
+        console.log("Total potion options: ", possible_potions.length);
+        // Sort by base value
+        //possible_potions.sort(function(a, b) {
+        //    return -a.value+b.value;
+        //});
+        // Sort by nomber of effects
+        possible_potions.sort(function(a, b) {
+            return -a.effectCount()+b.effectCount();
+        });
+        
+        var ptable = document.createElement("table");
+        ptable.innerHTML = "<tr><th>Effects</th><th>Ingredients</th><th>Value</th>";
+        ptable.cellpadding = "0";
+        ptable.cellspacing = "0";
+        ptable.id = "potions_table";
+                
+        possible_potions.forEach(function(potion) {
+            ptable.appendChild(potion.asTableRow());
+        });
+    }
+
+    function object_foreach(object, callback, skip_keys) {
+        for(var KEY in object) {
+            if(!object.hasOwnProperty(KEY))
+                continue;
+            if(skip_keys instanceof Array && skip_keys.indexOf(KEY)!=-1)
+                continue;
+            var result = callback(KEY, object[KEY]);
+            if(typeof result!="undefined")
+                return result;
+        }
+    }
+    function *ingredients_loop_generator(start_index, callback) {
+        var break_now = false;
+        for(var i=start_index, l=ingredient_names.length; i<l&&!break_now; ++i) {
+            callback(ingredient_names[i], POTION_INGREDIENTS[ingredient_names[i]], i, break_call);
+            yield i;
+        }
+        function break_call() {
+            break_now = true;
+        }
+    }
+    function ingredients_loop(start_index, callback) {
+        var iterator = ingredients_loop_generator(start_index, callback);
+        var result = null;
+        while(!(result=iterator.next()).done){}
+    }
+    function ingredients_loop_async(start_index, callback, timeout, iterationHandler) {
+        var max_index = ingredient_names.length;
+        var iterator = ingredients_loop_generator(start_index, callback);
+        if(!iterator)
+            throw new Error("Iterator not created!");
+        function doNext() {
+            var next = iterator.next();
+            var index = next.done?max_index:next.value;
+            if(iterationHandler instanceof Function)
+                iterationHandler(index, start_index, max_index, index/(max_index-start_index));
+            if(!next.done)
+                setTimeout(doNext, timeout);
+        }
+        setTimeout(doNext, timeout);
+    }
+    // returns all effect names shared by at least two ingredients
+    // multiple parameters are treated in varargs manner
+    // Do note that ingredient objects are expected, not names
+    function ingredient_shared_effects(ingredients) {
+        if(arguments.length>1) {
+            var tmp = [];
+            tmp.push.apply(tmp, arguments);
+            ingredients = tmp;    
+        }
+        var effects = [];
+        // Loop over 1st ingredient's effects
+        ingredients.forEach(function(ingredient) {  
+            ingredient.effect_list.forEach(function(ef1) {
+                ingredients.forEach(function(ingredient2) {
+                    // skip if 1st and 2nd ingredients are the same ingredient
+                    if(ingredient2.name==ingredient.name)
+                        return;
+                    // Note the second part of the if which prevents multiple occurences of the same effect
+                    if(ingredient2.effect_list.indexOf(ef1)!=-1 && effects.indexOf(ef1)==-1)
+                        effects.push(ef1);
+                });
+            });
+        });
+        return effects;
+    }
+    function effects_value(effect_names) {
+        if(arguments.length>1) {
+            var tmp = [];
+            tmp.push.apply(tmp, arguments);
+            effect_names = tmp;    
+        }
+        var value = 0;
+        effect_names.forEach(function(name) {
+            if(typeof effect_values[name]=="number")
+                value += effect_values[name];
+            else
+                console.warn("Unknown effect value! ", name);
+        });
+        return value;
+    }
+    
+    //effects_value(ingredient_shared_effects(POTION_INGREDIENTS["Creep Cluster"], POTION_INGREDIENTS["Mora Tapinella"], POTION_INGREDIENTS["Scaly Pholiota"]))
+  </script>
+</html>
+                                                                                                                                                                         
